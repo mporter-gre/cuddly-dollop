@@ -1,5 +1,5 @@
 
-getPlane <- function(omConn, imageId, z, t, c){
+getPlane <- function(omConn, imageId, z = 1, t, c){
   imgObj <- loadObject(omConn, 'ImageData', imageId)
   plane <- getPixelValues(imgObj, z, t, c)
 }
@@ -12,9 +12,6 @@ getStack <- function(omConn, imageId, t, c){
 
 getImageDimensions <- function(imgObj){
   pixelsObj <- imgObj@dataobject$getDefaultPixels()
-  rVals$sizeX <- pixelsObj$getSizeX()
-  rVals$sizeY <- pixelsObj$getSizeY()
-  rVals$sizeZ <- pixelsObj$getSizeZ()
-  rVals$sizeC <- pixelsObj$getSizeC()
-  rVals$sizeT <- pixelsObj$getSizeT()
+  imgDims <- c(pixelsObj$getSizeX(), pixelsObj$getSizeY(), pixelsObj$getSizeZ(), pixelsObj$getSizeC(), pixelsObj$getSizeT())
 }
+

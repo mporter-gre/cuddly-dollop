@@ -23,24 +23,23 @@ source('imageHandling.R')
 
 # Define UI for application that draws a histogram
 ui <- fluidPage(
-
+  
   # Application title
   titlePanel("OMERO Connection"),
   
   # Sidebar with a slider input for number of bins 
   sidebarLayout(
     tabsetPanel(
-      tabPanel('loginTab', '',
+      tabPanel('Login', '',
                sidebarPanel(
                  textInput('username', 'Username:'),
                  passwordInput('password', 'Password:'),
                  textInput('host', 'Host URL', value = 'wss://omero.hutton.ac.uk'),
                  numericInput('port', 'Port', value = 443),
-                 actionButton('loginBtn', 'Log In'),
-                 actionButton('test', 'Test server')
+                 actionButton('loginBtn', 'Log In')
                )
       ),
-      tabPanel('browseTab', '',
+      tabPanel('Browse', '',
                sidebarPanel(
                  selectInput("projects",
                              "Projects",
@@ -70,11 +69,15 @@ ui <- fluidPage(
                  value = 10,
                  width = '50px',
                  height = '500px',
+                 direction = 'rtl',
+                 update_on = 'end',
                  format = wNumbFormat(decimals = 0, prefix = "Z=")
                )
         ),
         column(width = 9,
                displayOutput('imgPane'),
+               #radioGroupButtons('channelRadios'),
+               tags$div(id = 'channelButtons'),
                sliderInput("minmaxSlider", "", min = 0, max = 4095, value = c(0, 4095))
         ),
       )
@@ -85,17 +88,22 @@ ui <- fluidPage(
 # Define server logic required to draw a histogram
 server <- function(input, output, session) {
   
-  rVals <- reactiveValues(omConn = NULL, plane = matrix(rpois(100,10),ncol=10))
-
+  #A collection of useful values
+  rVals <- reactiveValues(omConn = NULL, plane = matrix(rpois(100,10),ncol=10), 
+                          sizeZ = 1, selectedImageId = 1, channelButtons = c(),
+                          selectedC = 1)
+  
+  #Log in and populate Projects
   observeEvent(input$loginBtn, {
     rVals$omConn <- quickConnect(username = input$username, password = input$password,
-                             host = input$host, port = input$port)
+                                 host = input$host, port = input$port)
     rVals$userId <- getUserId(rVals$omConn)
     projTbl <- populateProjects(rVals$omConn, rVals$userId)
     projList = paste(projTbl$name, projTbl$id, sep = ' | ')
     updateSelectInput(session, 'projects', choices = projList)
-    })
+  })
   
+  #Populate Datasets
   observeEvent(input$projects, {
     if(!is.null(rVals$omConn)){
       selectedProjId = sub('.* | ', '', input$projects)
@@ -105,6 +113,7 @@ server <- function(input, output, session) {
     }
   })
   
+  #Populate Images
   observeEvent(input$datasets, {
     if(!is.null(rVals$omConn)){
       selectedDsId = sub('.* | ', '', input$datasets)
@@ -114,40 +123,102 @@ server <- function(input, output, session) {
     }
   })
   
+  #View selected image
   observeEvent(input$viewImage, {
-    selectedImageId = as.integer(sub('.* | ', '', input$images))
-    rVals$plane <- getPlane(rVals$omConn, selectedImageId, 1, 1, 1)
-    minmax <- range(rVals$plane)
-    rVals$rendered <- normalize(rVals$plane, separate=TRUE, ft=c(0,1), inputRange = minmax)
-    
-    updateSliderInput(session, 'minmaxSlider', value = c(minmax[[1]], minmax[[2]]))
-    #updateNoUiSliderInput(session, 'zSlider', enterValueHere)
-    
-    output$imgPane <- renderDisplay({
-      display(rVals$rendered)
-    })
-  })
-  
-  observeEvent(input$minmaxSlider, {
-    minmax <- input$minmaxSlider
-    if (minmax[[1]] != minmax[[2]]){
-      rVals$rendered <- EBImage::normalize(rVals$plane, separate=TRUE, ft=c(0,1),
-                                           input$minmaxSlider)
+    if (!is.null(rVals$omConn)){
+      #Define the image object and dimensions
+      rVals$selectedImageId = as.integer(sub('.* | ', '', input$images))
+      rVals$imgObj <- loadObject(rVals$omConn, 'ImageData', rVals$selectedImageId)
+      rVals$imgDims <- getImageDimensions(rVals$imgObj)
+      sizeZ <- rVals$imgDims[[3]]
       
+      #Get and render the plane
+      rVals$plane <- getPlane(rVals$omConn, rVals$selectedImageId, sizeZ/2, 1, 1)
+      rVals$minmax <- range(rVals$plane)
+      rVals$rendered <- normalize(rVals$plane, separate=TRUE, ft=c(0,1), inputRange = rVals$minmax)
+      
+      #Update the rendering minMaxSlider
+      updateSliderInput(session, 'minmaxSlider', value = c(rVals$minmax[[1]], rVals$minmax[[2]]))
+      
+      #Update the zSlider
+      updateNoUiSliderInput(session, 'zSlider', range = c(1, sizeZ), value = round(sizeZ/2))
+      
+      #Update channel buttons
+      # channelNamesList <- getChannelNames(rVals$imgObj)
+      # updateRadioGroupButtons('channelRadios', choices = channelNamesList)
+      
+      #Clear existing buttons, if present
+      if (length(rVals$channelButtons) > 0){
+        sizeC <- length(rVals$channelButtons)
+        for (channel in 1:sizeC){
+          removeUI(
+            ## pass in appropriate div id
+            selector = paste0('#', rVals$channelButtons[[channel]])
+          )
+        }
+        rVals$channelButtons <- c()
+      }
+      
+      #Create new channel buttons
+      channelNamesList <- getChannelNames(rVals$imgObj)
+      for (channel in 1:rVals$imgDims[[4]]){
+        buttonId <-paste0('channel', channel)
+        insertUI(
+          selector = '#channelButtons',
+          ui = actionButton(buttonId, channelNamesList[[channel]])
+        )
+        rVals$channelButtons <- c(buttonId, rVals$channelButtons)
+      }
+
+      
+      #Display the image
+      output$imgPane <- renderDisplay({
+        display(rVals$rendered)
+      })
     }
   })
   
-
-  # output$imgPane <- renderDisplay({
-  #   rVals$rendered <- normalize(rVals$plane, separate=TRUE, ft=c(0,1), 
-  #                               inputRange = input$minmaxSlider$value)
-  #   display(rVals$rendered)
-  #   #output$imgPane <- renderDisplay({
-  #     
-  #   #})
-  # })
+  #Update render settings change
+  observeEvent(input$minmaxSlider, {
+    rVals$minmax <- input$minmaxSlider
+    if (rVals$minmax[[1]] != rVals$minmax[[2]]){
+      rVals$rendered <- EBImage::normalize(rVals$plane, separate=TRUE, ft=c(0,1), input$minmaxSlider)
+    }
+  })
+  
+  #Update on z change
+  observeEvent(input$zSlider, {
+    if (!is.null(rVals$omConn)){
+      rVals$plane <- getPlane(rVals$omConn, rVals$selectedImageId, input$zSlider, 1, rVals$selectedC)
+      rVals$rendered <- EBImage::normalize(rVals$plane, separate=TRUE, ft=c(0,1), rVals$minmax)
+    }
+  })
+  
+  #Update on channel change. Not ideal reactive logic here - investigate
+  observeEvent(input$channel1, {
+    rVals$selectedC = 1
+    rVals$plane <- getPlane(rVals$omConn, rVals$selectedImageId, input$zSlider, 1, rVals$selectedC)
+    rVals$rendered <- EBImage::normalize(rVals$plane, separate=TRUE, ft=c(0,1), rVals$minmax)
+  })
+  observeEvent(input$channel2, {
+    rVals$selectedC = 2
+    rVals$plane <- getPlane(rVals$omConn, rVals$selectedImageId, input$zSlider, 1, rVals$selectedC)
+    rVals$rendered <- EBImage::normalize(rVals$plane, separate=TRUE, ft=c(0,1), rVals$minmax)
+  })
+  observeEvent(input$channel3, {
+    rVals$selectedC = 3
+    rVals$plane <- getPlane(rVals$omConn, rVals$selectedImageId, input$zSlider, 1, rVals$selectedC)
+    rVals$rendered <- EBImage::normalize(rVals$plane, separate=TRUE, ft=c(0,1), rVals$minmax)
+  })
+  observeEvent(input$channel4, {
+    rVals$selectedC = 4
+    rVals$plane <- getPlane(rVals$omConn, rVals$selectedImageId, input$zSlider, 1, rVals$selectedC)
+    rVals$rendered <- EBImage::normalize(rVals$plane, separate=TRUE, ft=c(0,1), rVals$minmax)
+  })
   
   
+  
+  #Close OMERO session when browser is closed
   session$onSessionEnded(function() {
     try({
       servConn <- isolate(rVals$omConn)
