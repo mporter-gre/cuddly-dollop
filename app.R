@@ -78,7 +78,8 @@ ui <- fluidPage(
                displayOutput('imgPane'),
                #radioGroupButtons('channelRadios'),
                tags$div(id = 'channelButtons'),
-               sliderInput("minmaxSlider", "", min = 0, max = 4095, value = c(0, 4095))
+               sliderInput("minmaxSlider", "", min = 0, max = 4095, value = c(0, 4095)),
+               plotOutput('histPlot')
         ),
       )
     )
@@ -144,9 +145,6 @@ server <- function(input, output, session) {
       updateNoUiSliderInput(session, 'zSlider', range = c(1, sizeZ), value = round(sizeZ/2))
       
       #Update channel buttons
-      # channelNamesList <- getChannelNames(rVals$imgObj)
-      # updateRadioGroupButtons('channelRadios', choices = channelNamesList)
-      
       #Clear existing buttons, if present
       if (length(rVals$channelButtons) > 0){
         sizeC <- length(rVals$channelButtons)
@@ -170,6 +168,13 @@ server <- function(input, output, session) {
         rVals$channelButtons <- c(buttonId, rVals$channelButtons)
       }
 
+      #Populate the histogram
+      #histData <- hist(rVals$plane, plot = FALSE)
+      output$histPlot <- renderPlot(
+        hist(rVals$plane, plot = TRUE),
+        # print(rVals$histData)
+        #plot(rVals$histData)#, type='b')
+      )
       
       #Display the image
       output$imgPane <- renderDisplay({
